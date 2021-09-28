@@ -37,7 +37,7 @@ struct Img {
     index:i32,
 }
 
-fn startup(mut commands: Commands, start: Res<Start>, mut materials: ResMut<Assets<ColorMaterial>>) {
+fn startup(mut commands: Commands, start: Res<Start>, mut materials: ResMut<Assets<ColorMaterial>>, asset_server: Res<AssetServer>) {
     let mut rng = rand::thread_rng();
     let bounds = start.bounds;
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
@@ -52,7 +52,7 @@ fn startup(mut commands: Commands, start: Res<Start>, mut materials: ResMut<Asse
             }
             commands
                 .spawn_bundle(SpriteBundle {
-                    material: materials.add(Color::rgb(0.5 + (((x+y)%2) as f32 * 0.1),0.5 + (((x+y)%2) as f32 * 0.1),0.5 + (((x+y)%2) as f32 * 0.1)).into()),
+                    material: materials.add(asset_server.load("images/facingDown.png").into()),
                     transform: Transform::from_xyz((bounds.x / 2.0) - (x as f32 * (bounds.x / start.tiles_x as f32)) - ((bounds.x/start.tiles_x as f32)/2.0), (bounds.y / 2.0) - (y as f32 * (bounds.y / start.tiles_y as f32)) - ((bounds.y/start.tiles_y as f32)/2.0), 0.0),
                     sprite: Sprite::new(Vec2::new(bounds.x/start.tiles_x as f32, bounds.y/start.tiles_y as f32)),
                     ..Default::default()
@@ -74,10 +74,10 @@ fn handle_mouse_clicks(mouse_input: Res<Input<MouseButton>>, mut windows: ResMut
         let query_var_var = query_var.borrow_mut().nth(index as usize).unwrap();
         let x = query_var_var.0;
         let y = query_var_var.1;
-        if !x.shown && pressed_left {
+        if !x.shown && pressed_left && !x.bomb {
             pressed_left_fn(commands, windows, index as i32, y, start, materials, query, asset_server);
         }
-        else if pressed_left {
+        else if !x.shown && pressed_left && x.bomb {
             let window = windows.get_primary_mut().unwrap();
             commands.spawn_bundle(TextBundle {
                 text: Text {
@@ -96,8 +96,8 @@ fn handle_mouse_clicks(mouse_input: Res<Input<MouseButton>>, mut windows: ResMut
                 style: Style {
                     position_type: PositionType::Absolute,
                     position: Rect {
-                        top: Px(window.height() / 2.0),
-                        left: Px(window.width() / 2.0),
+                        top: Px(0.0),
+                        left: Px(0.0),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -108,19 +108,17 @@ fn handle_mouse_clicks(mouse_input: Res<Input<MouseButton>>, mut windows: ResMut
                 ..Default::default()
             });
         }
-        else if !pressed_left {
-            let yy = index%start.tiles_x;
+        else if !pressed_left && !x.shown {
+            let yy = index%(start.tiles_x as f32);
             let xx = (index as f32/start.tiles_x as f32).floor();
             let bounds = start.bounds;
             commands
                 .spawn_bundle(SpriteBundle {
-                    material: materials.add(Color::rgb(0.8, 0.8, 0.8).into()),
-                    transform: Transform::from_xyz((bounds.x / 2.0) - (xx as f32 * (bounds.x / start.tiles_x as f32)) - ((bounds.x / start.tiles_x as f32) / 2.0), (bounds.y / 2.0) - (yy as f32 * (bounds.y / start.tiles_y as f32)) - ((bounds.y / start.tiles_y as f32) / 2.0), 0.0),
+                    material: materials.add(asset_server.load("images/flag.png").into()),
+                    transform: Transform::from_xyz((bounds.x / 2.0) - (xx as f32 * (bounds.x / start.tiles_x as f32)) - ((bounds.x / start.tiles_x as f32) / 2.0), (bounds.y / 2.0) - (yy as f32 * (bounds.y / start.tiles_y as f32)) - ((bounds.y / start.tiles_y as f32) / 2.0), 1.0),
                     sprite: Sprite::new(Vec2::new(bounds.x / start.tiles_x as f32, bounds.y / start.tiles_y as f32)),
                     ..Default::default()
-                })
-                .insert(Tile { index: index, bomb: false, shown: true });
-            commands.entity(y).despawn();
+                });
         }
     }
 }
@@ -154,7 +152,7 @@ fn pressed_left_fn(mut commands:Commands, mut windows:ResMut<Windows>, index: i3
     let bounds = start.bounds;
     commands
         .spawn_bundle(SpriteBundle {
-            material: materials.add(Color::rgb(0.8, 0.8, 0.8).into()),
+            material: materials.add(asset_server.load("images/empty.png").into()),
             transform: Transform::from_xyz((bounds.x / 2.0) - (xx as f32 * (bounds.x / start.tiles_x as f32)) - ((bounds.x / start.tiles_x as f32) / 2.0), (bounds.y / 2.0) - (yy as f32 * (bounds.y / start.tiles_y as f32)) - ((bounds.y / start.tiles_y as f32) / 2.0), 0.0),
             sprite: Sprite::new(Vec2::new(bounds.x / start.tiles_x as f32, bounds.y / start.tiles_y as f32)),
             ..Default::default()
@@ -162,29 +160,31 @@ fn pressed_left_fn(mut commands:Commands, mut windows:ResMut<Windows>, index: i3
         .insert(Tile { index: index, bomb: false, shown: true });
     let window = windows.get_primary_mut().unwrap();
     let mut number_of_bombs_near = 0;
-    if index - start.tiles_y >= 0 && index - start.tiles_y < start.tiles_x * start.tiles_y && query_var.borrow_mut().nth((index - start.tiles_y) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
-    }
-    if index + start.tiles_y >= 0 && index + start.tiles_y < start.tiles_x * start.tiles_y && query_var.borrow_mut().nth((index + start.tiles_y) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
-    }
-    if ((index + 1) as f32).floor() == ((index) as f32).floor() && query_var.borrow_mut().nth((index + 1) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
-    }
-    if ((index - 1) as f32).floor() == ((index) as f32).floor() && query_var.borrow_mut().nth((index - 1) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
-    }
-    if ((index + start.tiles_y + 1) as f32).floor() == ((index) as f32).floor() + 1.0 && query_var.borrow_mut().nth((index + start.tiles_y + 1) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
-    }
-    if ((index + start.tiles_y - 1) as f32).floor() == ((index) as f32).floor() + 1.0 && query_var.borrow_mut().nth((index + start.tiles_y - 1) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
-    }
-    if ((index - start.tiles_y + 1) as f32).floor() == ((index) as f32).floor() - 1.0 && query_var.borrow_mut().nth((index - start.tiles_y + 1) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
-    }
-    if ((index - start.tiles_y - 1) as f32).floor() == ((index) as f32).floor() - 1.0 && query_var.borrow_mut().nth((index - start.tiles_y - 1) as usize).unwrap().0.bomb {
-        number_of_bombs_near += 1;
+    for xxx in query_var.borrow_mut() {
+        if xxx.0.index == index - start.tiles_y && index - start.tiles_y >= 0 && index - start.tiles_y < start.tiles_x * start.tiles_y && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
+        if xxx.0.index == index + start.tiles_y && index + start.tiles_y >= 0 && index + start.tiles_y < start.tiles_x * start.tiles_y && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
+        if xxx.0.index == index + 1 && (((index + 1)/start.tiles_y) as f32).floor() == ((index/start.tiles_y) as f32).floor() && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
+        if xxx.0.index == index - 1 && (((index - 1)/start.tiles_y) as f32).floor() == ((index/start.tiles_y) as f32).floor() && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
+        if xxx.0.index == index + start.tiles_y + 1 &&  (((index + start.tiles_y + 1)/start.tiles_y - 1) as f32).floor() == ((index/start.tiles_y) as f32).floor() && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
+        if xxx.0.index == index + start.tiles_y - 1&& (((index + start.tiles_y - 1)/start.tiles_y - 1) as f32).floor() == ((index/start.tiles_y) as f32).floor() && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
+        if xxx.0.index == index - start.tiles_y + 1 && (((index - start.tiles_y + 1)/start.tiles_y + 1) as f32).floor() == ((index/start.tiles_y) as f32).floor() && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
+        if xxx.0.index == index - start.tiles_y - 1 && (((index - start.tiles_y - 1)/start.tiles_y + 1) as f32).floor() == ((index/start.tiles_y) as f32).floor() && xxx.0.bomb {
+            number_of_bombs_near += 1;
+        }
     }
     if number_of_bombs_near != 0 {
         commands.spawn_bundle(TextBundle {
@@ -204,8 +204,8 @@ fn pressed_left_fn(mut commands:Commands, mut windows:ResMut<Windows>, index: i3
             style: Style {
                 position_type: PositionType::Absolute,
                 position: Rect {
-                    top: Px(window.height() / 2.0),
-                    left: Px(window.width() / 2.0),
+                    top: Px(0.0),
+                    left: Px(0.0),
                     ..Default::default()
                 },
                 ..Default::default()
